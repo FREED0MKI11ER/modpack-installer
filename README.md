@@ -41,7 +41,7 @@ pack/
 
 ### 2. Generate the manifest
 ```
-python generate_manifest.py --pack-dir ./pack \
+python generate_manifest.py --pack-dir ./pack 
     --name "MyServerPack" --mc 1.21.11 \
     --base-url https://YOUR-SITE.example.com/modpack/ \
     --server-name "MyServer" --server-ip mc.example.com
