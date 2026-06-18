@@ -12,7 +12,7 @@ fi
 source .venv/bin/activate
 # Pillow is build-time only (icon generation). certifi ships the CA bundle and
 # IS bundled into the app (needed for HTTPS cert verification, esp. on macOS).
-python -m pip install --upgrade pip pyinstaller Pillow certifi
+python -m pip install --upgrade pip pyinstaller Pillow certifi customtkinter
 
 # Generate the app icon (build/icon.ico + icon.png).
 python build/make_icon.py

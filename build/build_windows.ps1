@@ -10,7 +10,7 @@ if (-not (Test-Path ".venv")) {
 }
 # Pillow is build-time only (icon generation). certifi ships the CA bundle and
 # IS bundled into the exe (needed for HTTPS cert verification, esp. on macOS).
-& ".venv\Scripts\python.exe" -m pip install --upgrade pip pyinstaller Pillow certifi
+& ".venv\Scripts\python.exe" -m pip install --upgrade pip pyinstaller Pillow certifi customtkinter
 
 # Generate the app icon (build/icon.ico + icon.png).
 & ".venv\Scripts\python.exe" build\make_icon.py

@@ -9,6 +9,8 @@
 import os
 import sys
 
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
 IS_MACOS = sys.platform == "darwin"
 
 block_cipher = None
@@ -29,12 +31,17 @@ if os.path.isfile(ICON_PNG):
     datas.append((ICON_PNG, "."))
 EXE_ICON = ICON_ICO if os.path.isfile(ICON_ICO) else None
 
+# customtkinter ships theme JSON + assets that must be bundled, otherwise the
+# frozen app crashes at startup. collect_data_files grabs them.
+datas += collect_data_files("customtkinter")
+hiddenimports = collect_submodules("customtkinter") + ["darkdetect"]
+
 a = Analysis(
     [os.path.join(ROOT, "installer.py")],
     pathex=[ROOT],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
     excludes=[],

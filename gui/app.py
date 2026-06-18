@@ -1,59 +1,98 @@
-"""Tkinter GUI for the modpack installer.
+"""Modern GUI for the modpack installer (customtkinter).
 
 Single-window flow:
-  - Top: pack title + manifest URL field (editable; defaults from config.json)
-  - Middle: scrollable list of launchers, each a checkbox + detected-path label
-            + Browse button to override the install root
-  - Bottom: Install/Update button, progress bar, scrolling log
-Install runs on a worker thread; UI updates are marshalled back via .after().
+  - Header: icon + title + installer version
+  - Pack info line + Manifest URL row
+  - Scrollable list of launchers (checkbox + detected badge + path + Browse)
+  - Install/Update button, progress bar, status line, log
+
+Appearance follows the system light/dark setting. Accent is purple.
+Install runs on a worker thread; UI updates are marshalled back via a queue.
 """
 
 import os
 import queue
+import sys
 import threading
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import filedialog, messagebox
+
+import customtkinter as ctk
 
 from core.config import load_config
 from core.engine import Engine
 from core import java_check
 
+# Purple accent palette (works in light and dark).
+ACCENT = "#7c3aed"
+ACCENT_HOVER = "#6d28d9"
+DETECTED_COLOR = ("#1b7f3b", "#4ade80")   # (light, dark)
+NOTFOUND_COLOR = ("#b26a00", "#fbbf24")
+MUTED_COLOR = ("#555555", "#a0a0a0")
+
+
+def _asset_dirs():
+    dirs = []
+    if getattr(sys, "frozen", False):
+        dirs.append(os.path.dirname(sys.executable))
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            dirs.append(meipass)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dirs.append(root)
+    dirs.append(os.path.join(root, "build"))
+    return dirs
+
+
+def _find_asset(name):
+    for d in _asset_dirs():
+        p = os.path.join(d, name)
+        if os.path.isfile(p):
+            return p
+    return None
+
 
 class LauncherRow:
     def __init__(self, parent, target):
         self.target = target
-        self.var = tk.BooleanVar(value=False)
-        self.path_var = tk.StringVar(
+        self.var = ctk.BooleanVar(value=False)
+
+        self.frame = ctk.CTkFrame(parent, corner_radius=8)
+        self.frame.pack(fill="x", padx=6, pady=4)
+        self.frame.grid_columnconfigure(2, weight=1)
+
+        self.check = ctk.CTkCheckBox(
+            self.frame, text=target.name, variable=self.var,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, width=200)
+        self.check.grid(row=0, column=0, sticky="w", padx=(12, 8), pady=10)
+
+        badge = "● detected" if target.present else "○ not found"
+        self.status_lbl = ctk.CTkLabel(
+            self.frame, text=badge, width=90,
+            text_color=DETECTED_COLOR if target.present else NOTFOUND_COLOR,
+            font=ctk.CTkFont(size=12, weight="bold"))
+        self.status_lbl.grid(row=0, column=1, sticky="w", padx=4)
+
+        self.path_var = ctk.StringVar(
             value=target.detected_path or "(not detected - click Browse)")
+        self.path_entry = ctk.CTkEntry(self.frame, textvariable=self.path_var)
+        self.path_entry.grid(row=0, column=2, sticky="we", padx=8)
 
-        self.frame = ttk.Frame(parent)
-        self.frame.pack(fill="x", padx=4, pady=3)
-
-        self.check = ttk.Checkbutton(
-            self.frame, text=target.name, variable=self.var, width=26)
-        self.check.grid(row=0, column=0, sticky="w")
-
-        status = "● detected" if target.present else "○ not found"
-        self.status_lbl = ttk.Label(
-            self.frame, text=status, width=12,
-            style="Detected.TLabel" if target.present else "NotFound.TLabel")
-        self.status_lbl.grid(row=0, column=1, sticky="w")
-
-        self.path_entry = ttk.Entry(self.frame, textvariable=self.path_var,
-                                    width=48)
-        self.path_entry.grid(row=0, column=2, sticky="we", padx=4)
-
-        self.browse_btn = ttk.Button(self.frame, text="Browse...",
-                                     command=self._browse, width=10)
-        self.browse_btn.grid(row=0, column=3, sticky="e")
-
-        self.frame.columnconfigure(2, weight=1)
+        self.browse_btn = ctk.CTkButton(
+            self.frame, text="Browse", width=80, command=self._browse,
+            fg_color="transparent", border_width=1,
+            text_color=("gray20", "gray90"), border_color=("gray60", "gray45"),
+            hover_color=("gray85", "gray25"))
+        self.browse_btn.grid(row=0, column=3, sticky="e", padx=(4, 12))
 
     def _browse(self):
-        chosen = filedialog.askdirectory(title=f"Select install folder for {self.target.name}")
+        chosen = filedialog.askdirectory(
+            title=f"Select install folder for {self.target.name}")
         if chosen:
             self.path_var.set(chosen)
             self.var.set(True)
+
+    def destroy(self):
+        self.frame.destroy()
 
     @property
     def selected(self):
@@ -72,96 +111,25 @@ class InstallerApp:
         self.engine = None
         self.rows = []
         self.msg_queue = queue.Queue()
+        self._busy = False
 
         self.app_version = self.cfg.get("version", "dev")
-        base_title = self.cfg.get("title", "Modpack Installer")
-        root.title(f"{base_title}  {self.app_version}")
-        root.geometry("840x640")
-        root.minsize(740, 560)
+        self.base_title = self.cfg.get("title", "Modpack Installer")
+        root.title(f"{self.base_title}  {self.app_version}")
+        root.geometry("900x680")
+        root.minsize(780, 600)
         self._set_window_icon()
-        self._init_style()
 
         self._build_header()
         self._build_launcher_area()
         self._build_footer()
 
         self._poll_queue()
-        # Auto-load the manifest on startup
         self.root.after(200, self.load_manifest)
 
-    # ---------- styling ----------
-    # Purple palette matching the FS icon.
-    ACCENT = "#582a9c"
-    ACCENT_HOVER = "#6d3bbf"
-    HEADER_BG = "#3d1e6e"
-    HEADER_FG = "#f0ebff"
-    BODY_BG = "#f5f3fa"
-
-    def _init_style(self):
-        style = ttk.Style()
-        # Prefer a theme we can color; fall back gracefully on macOS aqua.
-        for theme in ("clam", "vista", "default"):
-            if theme in style.theme_names():
-                try:
-                    style.theme_use(theme)
-                    break
-                except tk.TclError:
-                    continue
-
-        base_font = ("Segoe UI", 10)
-        try:
-            self.root.configure(bg=self.BODY_BG)
-        except tk.TclError:
-            pass
-
-        style.configure("TFrame", background=self.BODY_BG)
-        style.configure("TLabel", background=self.BODY_BG, font=base_font)
-        style.configure("TCheckbutton", background=self.BODY_BG, font=base_font)
-        style.configure("TLabelframe", background=self.BODY_BG)
-        style.configure("TLabelframe.Label", background=self.BODY_BG,
-                        font=("Segoe UI", 10, "bold"))
-
-        # Header styles.
-        style.configure("Header.TFrame", background=self.HEADER_BG)
-        style.configure("HeaderTitle.TLabel", background=self.HEADER_BG,
-                        foreground=self.HEADER_FG, font=("Segoe UI", 16, "bold"))
-        style.configure("HeaderSub.TLabel", background=self.HEADER_BG,
-                        foreground="#c9b8ec", font=("Segoe UI", 9))
-
-        # Info / status.
-        style.configure("Info.TLabel", background=self.BODY_BG,
-                        foreground="#333", font=("Segoe UI", 10))
-        style.configure("Hint.TLabel", background=self.BODY_BG,
-                        foreground="#666", font=("Segoe UI", 9))
-        style.configure("Status.TLabel", background=self.BODY_BG,
-                        foreground="#444", font=("Segoe UI", 9))
-
-        # Accent primary button.
-        style.configure("Accent.TButton", font=("Segoe UI", 11, "bold"),
-                        foreground="white", background=self.ACCENT,
-                        padding=(16, 8), borderwidth=0)
-        style.map("Accent.TButton",
-                  background=[("active", self.ACCENT_HOVER),
-                              ("disabled", "#b9a9d6")],
-                  foreground=[("disabled", "#eee")])
-
-        # Accent progress bar.
-        try:
-            style.configure("Accent.Horizontal.TProgressbar",
-                            background=self.ACCENT, troughcolor="#e2dcef",
-                            borderwidth=0, thickness=14)
-        except tk.TclError:
-            pass
-
-        # Status badges (detected / not found).
-        style.configure("Detected.TLabel", background=self.BODY_BG,
-                        foreground="#2e7d32", font=("Segoe UI", 9, "bold"))
-        style.configure("NotFound.TLabel", background=self.BODY_BG,
-                        foreground="#b26a00", font=("Segoe UI", 9, "bold"))
-
+    # ---------- helpers ----------
     @staticmethod
     def _fmt_date(iso):
-        """Format an ISO date (YYYY-MM-DD) as M/D/YYYY; pass through otherwise."""
         import datetime
         try:
             d = datetime.date.fromisoformat(iso)
@@ -169,145 +137,114 @@ class InstallerApp:
         except (ValueError, TypeError):
             return iso
 
-    # ---------- UI construction ----------
     def _set_window_icon(self):
-        """Set the titlebar/taskbar icon and load the PNG for the header."""
-        import os
-        import sys
-        self._icon_img = None
-        dirs = []
-        if getattr(sys, "frozen", False):
-            dirs.append(os.path.dirname(sys.executable))
-            meipass = getattr(sys, "_MEIPASS", None)
-            if meipass:
-                dirs.append(meipass)
-        # project root (parent of gui/) and build/
-        dirs.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        dirs.append(os.path.join(dirs[-1], "build"))
-
-        # Always try to load the PNG (used by the header image and as a
-        # cross-platform window icon fallback).
-        for d in dirs:
-            png = os.path.join(d, "icon.png")
-            if os.path.isfile(png):
-                try:
-                    self._icon_img = tk.PhotoImage(file=png)
-                    break
-                except tk.TclError:
-                    pass
-
-        # Prefer .ico for the window/taskbar icon on Windows.
-        for d in dirs:
-            ico = os.path.join(d, "icon.ico")
-            if os.path.isfile(ico):
-                try:
-                    self.root.iconbitmap(ico)
-                    return
-                except tk.TclError:
-                    pass
-        # Fallback: use the PNG as the window icon.
-        if self._icon_img is not None:
+        self._header_image = None
+        ico = _find_asset("icon.ico")
+        png = _find_asset("icon.png")
+        if ico:
             try:
-                self.root.iconphoto(True, self._icon_img)
-            except tk.TclError:
+                self.root.iconbitmap(ico)
+            except Exception:  # noqa: BLE001
                 pass
+        if png:
+            try:
+                from PIL import Image
+                img = Image.open(png)
+                self._header_image = ctk.CTkImage(
+                    light_image=img, dark_image=img, size=(44, 44))
+            except Exception:  # noqa: BLE001
+                self._header_image = None
 
+    # ---------- UI construction ----------
     def _build_header(self):
-        # Colored header band with icon + title + version.
-        band = ttk.Frame(self.root, style="Header.TFrame")
+        band = ctk.CTkFrame(self.root, corner_radius=0, fg_color=ACCENT)
         band.pack(fill="x")
-        inner = ttk.Frame(band, style="Header.TFrame")
-        inner.pack(fill="x", padx=16, pady=12)
+        inner = ctk.CTkFrame(band, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=14)
 
-        if getattr(self, "_icon_img", None) is not None:
-            try:
-                small = self._icon_img.subsample(
-                    max(1, self._icon_img.width() // 48))
-                icon_lbl = tk.Label(inner, image=small, bg=self.HEADER_BG,
-                                    borderwidth=0)
-                icon_lbl.image = small
-                icon_lbl.pack(side="left", padx=(0, 12))
-            except tk.TclError:
-                pass
+        if self._header_image is not None:
+            icon = ctk.CTkLabel(inner, image=self._header_image, text="")
+            icon.pack(side="left", padx=(0, 14))
 
-        text_col = ttk.Frame(inner, style="Header.TFrame")
+        text_col = ctk.CTkFrame(inner, fg_color="transparent")
         text_col.pack(side="left", fill="x", expand=True)
-        base_title = self.cfg.get("title", "Modpack Installer")
-        self.title_lbl = ttk.Label(text_col, text=base_title,
-                                   style="HeaderTitle.TLabel")
+        self.title_lbl = ctk.CTkLabel(
+            text_col, text=self.base_title, text_color="white",
+            font=ctk.CTkFont(size=20, weight="bold"))
         self.title_lbl.pack(anchor="w")
-        self.version_lbl = ttk.Label(
+        self.version_lbl = ctk.CTkLabel(
             text_col, text=f"Installer {self.app_version}",
-            style="HeaderSub.TLabel")
+            text_color="#e3d7ff", font=ctk.CTkFont(size=12))
         self.version_lbl.pack(anchor="w")
 
-        # Pack info line below the band.
-        top = ttk.Frame(self.root)
-        top.pack(fill="x", padx=16, pady=(10, 4))
-        self.info_lbl = ttk.Label(top, text="Loading pack info...",
-                                  style="Info.TLabel")
-        self.info_lbl.pack(anchor="w", pady=(0, 6))
+        # Pack info + manifest URL.
+        top = ctk.CTkFrame(self.root, fg_color="transparent")
+        top.pack(fill="x", padx=20, pady=(12, 4))
+        self.info_lbl = ctk.CTkLabel(
+            top, text="Loading pack info...", justify="left",
+            text_color=MUTED_COLOR, font=ctk.CTkFont(size=13))
+        self.info_lbl.pack(anchor="w", pady=(0, 8))
 
-        url_row = ttk.Frame(top)
+        url_row = ctk.CTkFrame(top, fg_color="transparent")
         url_row.pack(fill="x")
-        ttk.Label(url_row, text="Manifest URL:", style="TLabel").pack(side="left")
-        self.url_var = tk.StringVar(value=self.cfg.get("manifestUrl", ""))
-        self.url_entry = ttk.Entry(url_row, textvariable=self.url_var)
-        self.url_entry.pack(side="left", fill="x", expand=True, padx=6)
-        ttk.Button(url_row, text="Reload", command=self.load_manifest).pack(side="left")
+        ctk.CTkLabel(url_row, text="Manifest URL:").pack(side="left")
+        self.url_var = ctk.StringVar(value=self.cfg.get("manifestUrl", ""))
+        self.url_entry = ctk.CTkEntry(url_row, textvariable=self.url_var)
+        self.url_entry.pack(side="left", fill="x", expand=True, padx=8)
+        ctk.CTkButton(
+            url_row, text="Reload", width=80, command=self.load_manifest,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER).pack(side="left")
 
     def _build_launcher_area(self):
-        mid = ttk.LabelFrame(self.root, text="Select launcher(s) to install / update")
-        mid.pack(fill="both", expand=False, padx=12, pady=6)
+        section = ctk.CTkFrame(self.root, fg_color="transparent")
+        section.pack(fill="both", expand=False, padx=20, pady=(8, 4))
 
-        self.hint_lbl = ttk.Label(
-            mid,
+        ctk.CTkLabel(
+            section, text="Select launcher(s) to install / update",
+            font=ctk.CTkFont(size=14, weight="bold")).pack(anchor="w")
+
+        self.hint_lbl = ctk.CTkLabel(
+            section,
             text=("Tip: if your launcher isn't detected, tick it and click "
                   "Browse to select its folder (the one containing 'instances' "
                   "or '.minecraft')."),
-            style="Hint.TLabel", wraplength=780, justify="left")
-        self.hint_lbl.pack(fill="x", padx=6, pady=(4, 2))
+            text_color=MUTED_COLOR, justify="left", wraplength=820,
+            font=ctk.CTkFont(size=12))
+        self.hint_lbl.pack(anchor="w", pady=(2, 6))
 
-        # scrollable area
-        canvas = tk.Canvas(mid, height=220, highlightthickness=0)
-        scroll = ttk.Scrollbar(mid, orient="vertical", command=canvas.yview)
-        self.rows_frame = ttk.Frame(canvas)
-        self.rows_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=self.rows_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scroll.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
+        self.rows_frame = ctk.CTkScrollableFrame(section, height=200)
+        self.rows_frame.pack(fill="both", expand=True)
 
     def _build_footer(self):
-        bot = ttk.Frame(self.root)
-        bot.pack(fill="both", expand=True, padx=12, pady=(4, 12))
+        bot = ctk.CTkFrame(self.root, fg_color="transparent")
+        bot.pack(fill="both", expand=True, padx=20, pady=(4, 16))
 
-        ctrl = ttk.Frame(bot)
+        ctrl = ctk.CTkFrame(bot, fg_color="transparent")
         ctrl.pack(fill="x")
-        self.install_btn = ttk.Button(ctrl, text="Install / Update",
-                                      command=self.start_install,
-                                      state="disabled", style="Accent.TButton")
+        self.install_btn = ctk.CTkButton(
+            ctrl, text="Install / Update", command=self.start_install,
+            state="disabled", width=160, height=40,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            font=ctk.CTkFont(size=14, weight="bold"))
         self.install_btn.pack(side="left")
-        self.progress = ttk.Progressbar(ctrl, mode="determinate",
-                                        style="Accent.Horizontal.TProgressbar")
-        self.progress.pack(side="left", fill="x", expand=True, padx=10)
 
-        # Status line beneath the controls (always shows what's happening).
-        self.status_var = tk.StringVar(value="Starting...")
-        self.status_lbl = ttk.Label(bot, textvariable=self.status_var,
-                                    style="Status.TLabel")
-        self.status_lbl.pack(fill="x", pady=(6, 0))
-        self._busy = False  # whether the progress bar is animating
+        self.progress = ctk.CTkProgressBar(
+            ctrl, progress_color=ACCENT, mode="determinate")
+        self.progress.set(0)
+        self.progress.pack(side="left", fill="x", expand=True, padx=14)
 
-        self.log = tk.Text(bot, height=11, wrap="word", state="disabled",
-                          font=("Consolas", 9), background="#ffffff",
-                          relief="solid", borderwidth=1,
-                          highlightthickness=0)
+        self.status_var = ctk.StringVar(value="Starting...")
+        self.status_lbl = ctk.CTkLabel(
+            bot, textvariable=self.status_var, text_color=MUTED_COLOR,
+            anchor="w", font=ctk.CTkFont(size=12))
+        self.status_lbl.pack(fill="x", pady=(8, 0))
+
+        self.log = ctk.CTkTextbox(bot, height=180, font=ctk.CTkFont(
+            family="Consolas", size=12))
+        self.log.configure(state="disabled")
         self.log.pack(fill="both", expand=True, pady=(8, 0))
 
-    # ---------- logging via queue (thread-safe) ----------
+    # ---------- thread-safe queue plumbing ----------
     def _log(self, msg):
         self.msg_queue.put(("log", msg))
 
@@ -323,7 +260,8 @@ class InstallerApp:
     def _set_progress(self, current, total, name=None):
         self.msg_queue.put(("progress", (current, total)))
         if name:
-            self.msg_queue.put(("status", f"Downloading {name} ({current}/{total})"))
+            self.msg_queue.put(
+                ("status", f"Downloading {name} ({current}/{total})"))
 
     def _poll_queue(self):
         try:
@@ -340,9 +278,8 @@ class InstallerApp:
                     self._set_busy(payload)
                 elif kind == "progress":
                     cur, total = payload
-                    # Switch to determinate for measurable per-file progress.
                     self._set_busy(False)
-                    self.progress.configure(maximum=max(total, 1), value=cur)
+                    self.progress.set(cur / max(total, 1))
                 elif kind == "done":
                     self._on_install_done(payload)
                 elif kind == "loaded":
@@ -353,20 +290,21 @@ class InstallerApp:
                     self._set_busy(False)
                     self.status_var.set("Failed to load pack.")
                     self.info_lbl.configure(
-                        text=f"Failed to load pack: {payload}", foreground="#c62828")
+                        text=f"Failed to load pack: {payload}",
+                        text_color=("#c62828", "#ff6b6b"))
         except queue.Empty:
             pass
         self.root.after(100, self._poll_queue)
 
     def _set_busy(self, on):
-        """Toggle the indeterminate (animated) progress bar."""
         if on and not self._busy:
             self.progress.configure(mode="indeterminate")
-            self.progress.start(12)
+            self.progress.start()
             self._busy = True
         elif not on and self._busy:
             self.progress.stop()
             self.progress.configure(mode="determinate")
+            self.progress.set(0)
             self._busy = False
 
     # ---------- manifest loading ----------
@@ -375,11 +313,13 @@ class InstallerApp:
         if not url:
             messagebox.showwarning("Manifest URL", "Please enter a manifest URL.")
             return
-        self.info_lbl.configure(text="Loading pack info...", foreground="#555")
+        self.info_lbl.configure(text="Loading pack info...",
+                                text_color=MUTED_COLOR)
         self.install_btn.configure(state="disabled")
         self._busy_start()
         self._status("Connecting to server...")
-        threading.Thread(target=self._load_worker, args=(url,), daemon=True).start()
+        threading.Thread(target=self._load_worker, args=(url,),
+                         daemon=True).start()
 
     def _load_worker(self, url):
         try:
@@ -387,32 +327,27 @@ class InstallerApp:
             eng.load(log=self._log, status=self._status)
             self.engine = eng
             self.msg_queue.put(("loaded", None))
-            # Java check spawns a subprocess (slow JVM cold start); run it here
-            # on the worker thread so it never blocks the UI, then deliver the
-            # result via the queue.
             jv = java_check.java_version()
             self.msg_queue.put(("java", jv))
-        except Exception as e:  # noqa: BLE001 - surfaced to user
+        except Exception as e:  # noqa: BLE001
             self.msg_queue.put(("load_error", str(e)))
+
+    def _info_text(self, java_line):
+        m = self.engine.manifest
+        return (f"{m.pack_name}   •   MC {m.minecraft}   •   Fabric "
+                f"{self.engine.loader_version}   •   pack updated "
+                f"{self._fmt_date(m.version)}\n{java_line}")
 
     def _on_manifest_loaded(self):
         self._set_busy(False)
         self.status_var.set("Ready. Choose launcher(s) and click Install / Update.")
         m = self.engine.manifest
-        # Java line starts as "checking..." and is filled in by the ("java", ...)
-        # message once the background check completes.
-        self.info_lbl.configure(
-            text=(f"{m.pack_name}   •   MC {m.minecraft}   •   Fabric "
-                  f"{self.engine.loader_version}   •   pack updated "
-                  f"{self._fmt_date(m.version)}\n"
-                  f"Java: checking..."))
+        self.info_lbl.configure(text=self._info_text("Java: checking..."),
+                                text_color=MUTED_COLOR)
         self.title_lbl.configure(text=m.pack_name)
 
-        # populate launcher rows (start unchecked; user explicitly selects).
-        # Detected launchers are listed first, then the rest (each group keeps
-        # registry order).
         for r in self.rows:
-            r.frame.destroy()
+            r.destroy()
         self.rows = []
         targets = self.engine.detect_targets()
         ordered = [t for t in targets if t.present] + \
@@ -425,13 +360,9 @@ class InstallerApp:
     def _on_java_result(self, jv):
         if self.engine is None or self.engine.manifest is None:
             return
-        m = self.engine.manifest
         jv = jv or "not found (your launcher likely bundles Java)"
-        self.info_lbl.configure(
-            text=(f"{m.pack_name}   •   MC {m.minecraft}   •   Fabric "
-                  f"{self.engine.loader_version}   •   pack updated "
-                  f"{self._fmt_date(m.version)}\n"
-                  f"Java: {jv}"))
+        self.info_lbl.configure(text=self._info_text(f"Java: {jv}"),
+                                text_color=MUTED_COLOR)
 
     # ---------- install ----------
     def start_install(self):
@@ -447,7 +378,7 @@ class InstallerApp:
                     f"{r.target.name} has no install folder. Click Browse to set it.")
                 return
         self.install_btn.configure(state="disabled")
-        self.progress.configure(value=0)
+        self.progress.set(0)
         self._busy_start()
         self._status("Preparing install...")
         threading.Thread(target=self._install_worker, args=(chosen,),
@@ -472,6 +403,7 @@ class InstallerApp:
     def _on_install_done(self, payload):
         results, errors = payload
         self._set_busy(False)
+        self.progress.set(1 if results and not errors else 0)
         self.status_var.set("Done." if not errors else "Finished with errors.")
         self.install_btn.configure(state="normal")
         lines = []
@@ -487,11 +419,9 @@ class InstallerApp:
 
 
 def main():
-    root = tk.Tk()
-    try:
-        ttk.Style().theme_use("vista")
-    except tk.TclError:
-        pass
+    ctk.set_appearance_mode("System")   # follow OS light/dark
+    ctk.set_default_color_theme("blue")  # base; we override accents to purple
+    root = ctk.CTk()
     InstallerApp(root)
     root.mainloop()
 
