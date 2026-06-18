@@ -162,6 +162,11 @@ modpack_installer/
   badge) using Pillow. Pillow is a build-time-only dependency and is **not**
   shipped in the player executable. Replace `build/icon.ico`/`icon.png` to
   customize.
-- **Code signing** is not included; unsigned binaries trigger OS warnings that
-  players click through.
+- **Code signing** is not included (intentional — it costs money yearly).
+  Unsigned binaries trigger a one-time OS prompt that players click through:
+  - Windows SmartScreen: **More info -> Run anyway**
+  - macOS Gatekeeper: right-click -> **Open**
+  Each GitHub release also publishes a `SHA256SUMS.txt` so downloads can be
+  verified. If the app is ever distributed widely to strangers, an EV code-
+  signing certificate would remove the Windows prompt instantly.
 

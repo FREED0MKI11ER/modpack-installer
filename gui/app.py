@@ -6,7 +6,7 @@ Single-window flow:
   - Scrollable list of launchers (checkbox + detected badge + path + Browse)
   - Install/Update button, progress bar, status line, log
 
-Appearance follows the system light/dark setting. Accent is purple.
+Appearance follows the system light/dark setting. Neutral (no brand accent).
 Install runs on a worker thread; UI updates are marshalled back via a queue.
 """
 
@@ -22,9 +22,7 @@ from core.config import load_config
 from core.engine import Engine
 from core import java_check
 
-# Purple accent palette (works in light and dark).
-ACCENT = "#7c3aed"
-ACCENT_HOVER = "#6d28d9"
+# Neutral palette. Status badges keep informational colors; no brand accent.
 DETECTED_COLOR = ("#1b7f3b", "#4ade80")   # (light, dark)
 NOTFOUND_COLOR = ("#b26a00", "#fbbf24")
 MUTED_COLOR = ("#555555", "#a0a0a0")
@@ -61,8 +59,7 @@ class LauncherRow:
         self.frame.grid_columnconfigure(2, weight=1)
 
         self.check = ctk.CTkCheckBox(
-            self.frame, text=target.name, variable=self.var,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER, width=200)
+            self.frame, text=target.name, variable=self.var, width=200)
         self.check.grid(row=0, column=0, sticky="w", padx=(12, 8), pady=10)
 
         badge = "● detected" if target.present else "○ not found"
@@ -138,43 +135,26 @@ class InstallerApp:
             return iso
 
     def _set_window_icon(self):
-        self._header_image = None
+        # Keep the .ico as the taskbar/window icon; no in-window header image.
         ico = _find_asset("icon.ico")
-        png = _find_asset("icon.png")
         if ico:
             try:
                 self.root.iconbitmap(ico)
             except Exception:  # noqa: BLE001
                 pass
-        if png:
-            try:
-                from PIL import Image
-                img = Image.open(png)
-                self._header_image = ctk.CTkImage(
-                    light_image=img, dark_image=img, size=(44, 44))
-            except Exception:  # noqa: BLE001
-                self._header_image = None
 
     # ---------- UI construction ----------
     def _build_header(self):
-        band = ctk.CTkFrame(self.root, corner_radius=0, fg_color=ACCENT)
-        band.pack(fill="x")
-        inner = ctk.CTkFrame(band, fg_color="transparent")
-        inner.pack(fill="x", padx=20, pady=14)
-
-        if self._header_image is not None:
-            icon = ctk.CTkLabel(inner, image=self._header_image, text="")
-            icon.pack(side="left", padx=(0, 14))
-
-        text_col = ctk.CTkFrame(inner, fg_color="transparent")
-        text_col.pack(side="left", fill="x", expand=True)
+        # Plain header: title + version text on the normal background.
+        head = ctk.CTkFrame(self.root, fg_color="transparent")
+        head.pack(fill="x", padx=20, pady=(16, 0))
         self.title_lbl = ctk.CTkLabel(
-            text_col, text=self.base_title, text_color="white",
+            head, text=self.base_title,
             font=ctk.CTkFont(size=20, weight="bold"))
         self.title_lbl.pack(anchor="w")
         self.version_lbl = ctk.CTkLabel(
-            text_col, text=f"Installer {self.app_version}",
-            text_color="#e3d7ff", font=ctk.CTkFont(size=12))
+            head, text=f"Installer {self.app_version}",
+            text_color=MUTED_COLOR, font=ctk.CTkFont(size=12))
         self.version_lbl.pack(anchor="w")
 
         # Pack info + manifest URL.
@@ -192,8 +172,8 @@ class InstallerApp:
         self.url_entry = ctk.CTkEntry(url_row, textvariable=self.url_var)
         self.url_entry.pack(side="left", fill="x", expand=True, padx=8)
         ctk.CTkButton(
-            url_row, text="Reload", width=80, command=self.load_manifest,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER).pack(side="left")
+            url_row, text="Reload", width=80,
+            command=self.load_manifest).pack(side="left")
 
     def _build_launcher_area(self):
         section = ctk.CTkFrame(self.root, fg_color="transparent")
@@ -224,12 +204,10 @@ class InstallerApp:
         self.install_btn = ctk.CTkButton(
             ctrl, text="Install / Update", command=self.start_install,
             state="disabled", width=160, height=40,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
             font=ctk.CTkFont(size=14, weight="bold"))
         self.install_btn.pack(side="left")
 
-        self.progress = ctk.CTkProgressBar(
-            ctrl, progress_color=ACCENT, mode="determinate")
+        self.progress = ctk.CTkProgressBar(ctrl, mode="determinate")
         self.progress.set(0)
         self.progress.pack(side="left", fill="x", expand=True, padx=14)
 
@@ -420,7 +398,7 @@ class InstallerApp:
 
 def main():
     ctk.set_appearance_mode("System")   # follow OS light/dark
-    ctk.set_default_color_theme("blue")  # base; we override accents to purple
+    ctk.set_default_color_theme("blue")  # ctk default neutral theme
     root = ctk.CTk()
     InstallerApp(root)
     root.mainloop()
