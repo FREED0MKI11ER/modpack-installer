@@ -10,8 +10,9 @@ if [ ! -d ".venv" ]; then
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
-# Pillow is build-time only (icon generation); not bundled into the app.
-python -m pip install --upgrade pip pyinstaller Pillow
+# Pillow is build-time only (icon generation). certifi ships the CA bundle and
+# IS bundled into the app (needed for HTTPS cert verification, esp. on macOS).
+python -m pip install --upgrade pip pyinstaller Pillow certifi
 
 # Generate the app icon (build/icon.ico + icon.png).
 python build/make_icon.py

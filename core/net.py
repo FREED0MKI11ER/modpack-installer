@@ -25,10 +25,23 @@ def encode_url(url):
         (parts.scheme, parts.netloc, path, query, parts.fragment))
 
 
+def _ssl_context():
+    """Build an SSL context with a known-good CA bundle.
+
+    On macOS (and frozen apps generally) Python may not find the system CA
+    store, causing CERTIFICATE_VERIFY_FAILED. certifi ships Mozilla's CA bundle
+    and works identically on every OS, bundled or not. Falls back to the default
+    context if certifi is unavailable.
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001 - fall back to system default
+        return ssl.create_default_context()
+
+
 def _opener():
-    # Default context; verifies certs. Kept as a hook in case we need to relax.
-    ctx = ssl.create_default_context()
-    handler = urllib.request.HTTPSHandler(context=ctx)
+    handler = urllib.request.HTTPSHandler(context=_ssl_context())
     return urllib.request.build_opener(handler)
 
 
