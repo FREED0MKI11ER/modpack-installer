@@ -22,13 +22,10 @@ class PrismLauncher(Launcher):
     name = "Prism Launcher"
     folder_names = ["PrismLauncher"]
 
-    def default_path(self):
-        return self._find_instances(self.folder_names)
-
-    def _find_instances(self, names):
+    def candidate_paths(self):
         candidates = []
         k = os_key()
-        for n in names:
+        for n in self.folder_names:
             if k == "windows":
                 candidates.append(os.path.join(appdata_roaming(), n, "instances"))
                 candidates.append(os.path.join(appdata_local(), n, "instances"))
@@ -39,11 +36,25 @@ class PrismLauncher(Launcher):
                 candidates.append(os.path.join(
                     home(), ".local", "share", n, "instances"))
                 candidates.append(os.path.join(home(), "." + n.lower(), "instances"))
-        for c in candidates:
-            if os.path.isdir(c):
-                return c
-        # Return the first candidate as a best-guess even if missing.
-        return candidates[0] if candidates else None
+        return candidates
+
+    def is_valid_root(self, path):
+        """`path` is an instances/ dir; valid if it exists or its parent has an
+        MMC-format config file."""
+        if not path:
+            return False
+        if os.path.isdir(path):
+            return True
+        parent = os.path.dirname(path)
+        for cfg in ("prismlauncher.cfg", "multimc.cfg", "metacache",
+                    "accounts.json"):
+            if os.path.isfile(os.path.join(parent, cfg)):
+                return True
+        return False
+
+    def default_path(self):
+        cands = self.candidate_paths()
+        return cands[0] if cands else None
 
     def install(self, root, manifest, mc_version, loader_version,
                 instance_name, log=None):
@@ -109,8 +120,5 @@ class PrismLauncher(Launcher):
 class MultiMCLauncher(PrismLauncher):
     name = "MultiMC"
     folder_names = ["MultiMC"]
-
-    def default_path(self):
-        # MultiMC is typically portable: instances next to the executable.
-        # Fall back to common per-OS spots; user will usually browse.
-        return self._find_instances(self.folder_names)
+    # MultiMC is often portable (instances next to the executable); detection
+    # falls back to common per-OS spots, otherwise the user browses.

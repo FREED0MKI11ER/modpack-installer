@@ -27,18 +27,58 @@ from .base import (Launcher, InstallResult, os_key, home,
 class ATLauncher(Launcher):
     name = "ATLauncher"
 
-    def _root(self):
+    def _roots(self):
+        """ATLauncher is portable; check several likely roots, best-guess first."""
         k = os_key()
+        roots = []
         if k == "windows":
-            return os.path.join(appdata_roaming(), "ATLauncher")
-        if k == "macos":
-            return os.path.join(home(), "Library", "Application Support",
-                                "ATLauncher")
-        # Linux: classic dotdir
-        return os.path.join(home(), ".atlauncher")
+            roots += [
+                os.path.join(appdata_roaming(), "ATLauncher"),
+                os.path.join(home(), "ATLauncher"),
+                os.path.join(home(), "Downloads", "ATLauncher"),
+                os.path.join(home(), "Desktop", "ATLauncher"),
+            ]
+        elif k == "macos":
+            roots += [
+                os.path.join(home(), "ATLauncher"),
+                os.path.join(home(), "Library", "Application Support", "ATLauncher"),
+                os.path.join(home(), "Applications", "ATLauncher"),
+                "/Applications/ATLauncher",
+                os.path.join(home(), "Downloads", "ATLauncher"),
+                os.path.join(home(), "Desktop", "ATLauncher"),
+            ]
+        else:  # linux
+            roots += [
+                os.path.join(home(), ".atlauncher"),
+                os.path.join(home(), "ATLauncher"),
+                os.path.join(home(), ".var", "app",
+                             "com.atlauncher.ATLauncher", "data"),
+                os.path.join(home(), "Downloads", "ATLauncher"),
+            ]
+        return roots
+
+    def candidate_paths(self):
+        # We install into <root>/instances; return the instances dirs.
+        return [os.path.join(r, "instances") for r in self._roots()]
+
+    def is_valid_root(self, path):
+        """`path` is an instances/ dir; valid if it (or its parent) shows an
+        ATLauncher signature."""
+        if not path:
+            return False
+        parent = os.path.dirname(path)
+        # An existing instances/ dir, or a parent that has configs/, is a strong
+        # signal this is a real ATLauncher install.
+        if os.path.isdir(path):
+            return True
+        if os.path.isdir(os.path.join(parent, "configs")):
+            return True
+        return False
 
     def default_path(self):
-        return os.path.join(self._root(), "instances")
+        # First candidate (best guess) for when nothing is detected.
+        cands = self.candidate_paths()
+        return cands[0] if cands else None
 
     def install(self, root, manifest, mc_version, loader_version,
                 instance_name, log=None):

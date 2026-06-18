@@ -56,10 +56,30 @@ class Launcher:
     # or relies on us writing a vanilla version JSON.
     self_installs_fabric = True
 
+    def candidate_paths(self):
+        """Return a list of possible install roots, best-guess first.
+
+        Default implementation wraps default_path(). Launchers that live in
+        several possible locations should override this.
+        """
+        p = self.default_path()
+        return [p] if p else []
+
+    def is_valid_root(self, path):
+        """Return True if `path` looks like a real install of this launcher.
+
+        Override to check for a signature (e.g. instances/ or
+        launcher_profiles.json) rather than just the folder existing. The
+        default accepts any existing directory.
+        """
+        return bool(path) and os.path.isdir(path)
+
     def detect(self):
-        """Return the default root path if it exists, else None."""
-        path = self.default_path()
-        return path if path and os.path.isdir(path) else None
+        """Return the first candidate path that looks like a real install."""
+        for path in self.candidate_paths():
+            if path and self.is_valid_root(path):
+                return path
+        return None
 
     def is_present(self):
         return self.detect() is not None

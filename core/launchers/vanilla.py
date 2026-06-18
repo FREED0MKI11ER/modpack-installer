@@ -29,6 +29,21 @@ class VanillaLauncher(Launcher):
             return os.path.join(home(), "Library", "Application Support", "minecraft")
         return os.path.join(home(), ".minecraft")
 
+    def is_valid_root(self, path):
+        """Require evidence the launcher is actually installed, not just an
+        empty/leftover data folder.
+
+        Accept if launcher_profiles.json exists in the data dir, OR (macOS) the
+        Minecraft.app is present in /Applications.
+        """
+        if not path:
+            return False
+        if os.path.isfile(os.path.join(path, "launcher_profiles.json")):
+            return True
+        if os_key() == "macos" and os.path.isdir("/Applications/Minecraft.app"):
+            return True
+        return False
+
     def install(self, root, manifest, mc_version, loader_version,
                 instance_name, log=None):
         log = log or (lambda *_: None)

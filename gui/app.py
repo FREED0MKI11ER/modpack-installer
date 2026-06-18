@@ -144,6 +144,14 @@ class InstallerApp:
         mid = ttk.LabelFrame(self.root, text="Select launcher(s) to install / update")
         mid.pack(fill="both", expand=False, padx=12, pady=6)
 
+        self.hint_lbl = ttk.Label(
+            mid,
+            text=("Tip: if your launcher isn't detected, tick it and click "
+                  "Browse to select its folder (the one containing 'instances' "
+                  "or '.minecraft')."),
+            foreground="#666", wraplength=760, justify="left")
+        self.hint_lbl.pack(fill="x", padx=6, pady=(4, 2))
+
         # scrollable area
         canvas = tk.Canvas(mid, height=220, highlightthickness=0)
         scroll = ttk.Scrollbar(mid, orient="vertical", command=canvas.yview)
