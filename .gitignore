@@ -1,0 +1,22 @@
+# Modpack content (hosted on your server, not part of the installer source)
+/pack/
+
+# Build outputs
+/dist/
+/build/_work/
+/build/icon.ico
+/build/icon.png
+out/
+
+# PyInstaller leftovers
+*.spec.bak
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS cruft
+.DS_Store
+Thumbs.db
