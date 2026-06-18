@@ -48,45 +48,6 @@ To update after the server changes the pack, just run the installer again.
 
 ---
 
-## Project layout
-```
-modpack_installer/
-├── installer.py            # GUI entry point
-├── generate_manifest.py    # admin tool: build manifest.json (+ optional .mrpack)
-├── config.json             # manifestUrl + title (set before building)
-├── core/
-│   ├── net.py              # stdlib HTTP helpers
-│   ├── manifest.py         # fetch/parse manifest
-│   ├── sync.py             # hash-diff download/remove engine
-│   ├── fabric.py           # Fabric meta API + vanilla install
-│   ├── java_check.py       # informational Java check
-│   ├── mojang.py           # Mojang version manifest (for ATLauncher instance)
-│   ├── nbt.py              # minimal NBT reader/writer
-│   ├── servers.py          # adds server to servers.dat (in-game list)
-│   ├── engine.py           # orchestration
-│   └── launchers/          # one writer per launcher + registry
-├── gui/app.py              # tkinter UI
-└── build/                  # PyInstaller spec, build scripts, make_icon.py
-```
-
-## Notes & limitations
-- **Auto-update** = re-running the installer (fast no-op when nothing changed).
-  No launcher-specific launch hooks are used, for consistency across launchers.
-- **ATLauncher** instances embed a full merged Minecraft + Fabric version
-  manifest in `instance.json`; the installer builds this from the Mojang and
-  Fabric meta APIs. The launcher downloads the actual game/library files on
-  first launch.
-- **Server list**: the installer merges your server into each game directory's
-  `servers.dat` (uncompressed NBT), preserving any servers the player already
-  has and de-duplicating by address.
-- **Resource packs** are synced and available; players enable them in-game.
-- **App icon** is generated at build time by `build/make_icon.py` (purple "FS"
-  badge) using Pillow. Pillow is a build-time-only dependency and is **not**
-  shipped in the player executable. Replace `build/icon.ico`/`icon.png` to
-  customize.
-- **Code signing** is not included; unsigned binaries trigger OS warnings that
-  players click through.
-
 ## Part B — Admin guide
 
 ### 1. Lay out your pack locally
@@ -164,3 +125,43 @@ run the installer again — it syncs only what changed. You do **not** need to
 rebuild the executable unless you change `config.json` or the app code.
 
 ---
+
+## Project layout
+```
+modpack_installer/
+├── installer.py            # GUI entry point
+├── generate_manifest.py    # admin tool: build manifest.json (+ optional .mrpack)
+├── config.json             # manifestUrl + title (set before building)
+├── core/
+│   ├── net.py              # stdlib HTTP helpers
+│   ├── manifest.py         # fetch/parse manifest
+│   ├── sync.py             # hash-diff download/remove engine
+│   ├── fabric.py           # Fabric meta API + vanilla install
+│   ├── java_check.py       # informational Java check
+│   ├── mojang.py           # Mojang version manifest (for ATLauncher instance)
+│   ├── nbt.py              # minimal NBT reader/writer
+│   ├── servers.py          # adds server to servers.dat (in-game list)
+│   ├── engine.py           # orchestration
+│   └── launchers/          # one writer per launcher + registry
+├── gui/app.py              # tkinter UI
+└── build/                  # PyInstaller spec, build scripts, make_icon.py
+```
+
+## Notes & limitations
+- **Auto-update** = re-running the installer (fast no-op when nothing changed).
+  No launcher-specific launch hooks are used, for consistency across launchers.
+- **ATLauncher** instances embed a full merged Minecraft + Fabric version
+  manifest in `instance.json`; the installer builds this from the Mojang and
+  Fabric meta APIs. The launcher downloads the actual game/library files on
+  first launch.
+- **Server list**: the installer merges your server into each game directory's
+  `servers.dat` (uncompressed NBT), preserving any servers the player already
+  has and de-duplicating by address.
+- **Resource packs** are synced and available; players enable them in-game.
+- **App icon** is generated at build time by `build/make_icon.py` (purple "FS"
+  badge) using Pillow. Pillow is a build-time-only dependency and is **not**
+  shipped in the player executable. Replace `build/icon.ico`/`icon.png` to
+  customize.
+- **Code signing** is not included; unsigned binaries trigger OS warnings that
+  players click through.
+
