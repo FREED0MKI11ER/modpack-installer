@@ -42,6 +42,17 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install --upgrade pip pyinstaller Pillow certifi
 
+      - name: Stamp version (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: python
+        run: |
+          import os
+          tag = os.environ["GITHUB_REF_NAME"]
+          with open("core/version.py", "w", encoding="utf-8") as f:
+              f.write('"""Application version (stamped by CI)."""\n\n')
+              f.write(f'APP_VERSION = "{tag}"\n')
+          print("Stamped APP_VERSION =", tag)
+
       - name: Generate icon
         run: python build/make_icon.py
 

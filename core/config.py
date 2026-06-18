@@ -23,9 +23,11 @@ def _candidate_dirs():
 
 
 def load_config():
+    from .version import APP_VERSION
     cfg = {
         "manifestUrl": "",
         "title": "Modpack Installer",
+        "version": APP_VERSION,  # may be overridden by config.json
     }
     for d in _candidate_dirs():
         path = os.path.join(d, "config.json")
