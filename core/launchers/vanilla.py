@@ -44,6 +44,9 @@ class VanillaLauncher(Launcher):
             return True
         return False
 
+    def game_dir_for(self, root, instance_name):
+        return os.path.join(root, "modpacks", safe_name(instance_name))
+
     def install(self, root, manifest, mc_version, loader_version,
                 instance_name, log=None):
         log = log or (lambda *_: None)
@@ -54,8 +57,7 @@ class VanillaLauncher(Launcher):
             mc_dir, mc_version, loader_version, log=log)
 
         # 2. Dedicated game directory for the pack
-        folder = safe_name(instance_name)
-        game_dir = os.path.join(mc_dir, "modpacks", folder)
+        game_dir = self.game_dir_for(mc_dir, instance_name)
         os.makedirs(game_dir, exist_ok=True)
 
         # 3. Add/update profile in launcher_profiles.json

@@ -50,8 +50,9 @@ def _find_asset(name):
 
 
 class LauncherRow:
-    def __init__(self, parent, target):
+    def __init__(self, parent, target, on_toggle=None):
         self.target = target
+        self.on_toggle = on_toggle or (lambda: None)
         self.var = ctk.BooleanVar(value=False)
 
         self.frame = ctk.CTkFrame(parent, corner_radius=8)
@@ -59,15 +60,17 @@ class LauncherRow:
         self.frame.grid_columnconfigure(2, weight=1)
 
         self.check = ctk.CTkCheckBox(
-            self.frame, text=target.name, variable=self.var, width=200)
+            self.frame, text=target.name, variable=self.var, width=200,
+            command=lambda: self.on_toggle())
         self.check.grid(row=0, column=0, sticky="w", padx=(12, 8), pady=10)
 
-        badge = "● detected" if target.present else "○ not found"
+        # status pill (pack state for detected; "not found" for undetected)
+        self.status = "not_installed" if target.present else None
         self.status_lbl = ctk.CTkLabel(
-            self.frame, text=badge, width=90,
-            text_color=DETECTED_COLOR if target.present else NOTFOUND_COLOR,
+            self.frame, text="", width=160,
             font=ctk.CTkFont(size=12, weight="bold"))
         self.status_lbl.grid(row=0, column=1, sticky="w", padx=4)
+        self._render_status()
 
         self.path_var = ctk.StringVar(
             value=target.detected_path or "(not detected - click Browse)")
@@ -81,12 +84,29 @@ class LauncherRow:
             hover_color=("gray85", "gray25"))
         self.browse_btn.grid(row=0, column=3, sticky="e", padx=(4, 12))
 
+    def _render_status(self):
+        if not self.target.present:
+            self.status_lbl.configure(text="○ not found",
+                                      text_color=NOTFOUND_COLOR)
+            return
+        label, color = {
+            "up_to_date": ("Pack up to date", DETECTED_COLOR),
+            "out_of_date": ("Pack out of date", NOTFOUND_COLOR),
+            "not_installed": ("Detected, pack not installed", MUTED_COLOR),
+        }.get(self.status, ("Detected, pack not installed", MUTED_COLOR))
+        self.status_lbl.configure(text=label, text_color=color)
+
+    def set_status(self, status):
+        self.status = status
+        self._render_status()
+
     def _browse(self):
         chosen = filedialog.askdirectory(
             title=f"Select install folder for {self.target.name}")
         if chosen:
             self.path_var.set(chosen)
             self.var.set(True)
+            self.on_toggle()
 
     def destroy(self):
         self.frame.destroy()
@@ -264,6 +284,8 @@ class InstallerApp:
                     self._on_manifest_loaded()
                 elif kind == "java":
                     self._on_java_result(payload)
+                elif kind == "statuses":
+                    self._on_statuses(payload)
                 elif kind == "load_error":
                     self._set_busy(False)
                     self.status_var.set("Failed to load pack.")
@@ -307,6 +329,11 @@ class InstallerApp:
             self.msg_queue.put(("loaded", None))
             jv = java_check.java_version()
             self.msg_queue.put(("java", jv))
+            # Pack status per detected launcher (marker read; fast).
+            try:
+                self.msg_queue.put(("statuses", eng.statuses()))
+            except Exception:  # noqa: BLE001 - non-fatal
+                pass
         except Exception as e:  # noqa: BLE001
             self.msg_queue.put(("load_error", str(e)))
 
@@ -331,8 +358,11 @@ class InstallerApp:
         ordered = [t for t in targets if t.present] + \
                   [t for t in targets if not t.present]
         for target in ordered:
-            self.rows.append(LauncherRow(self.rows_frame, target))
+            self.rows.append(
+                LauncherRow(self.rows_frame, target,
+                            on_toggle=self._update_button_label))
         self.install_btn.configure(state="normal")
+        self._update_button_label()
         self._log("Ready. Choose launcher(s) and click Install / Update.")
 
     def _on_java_result(self, jv):
@@ -341,6 +371,32 @@ class InstallerApp:
         jv = jv or "not found (your launcher likely bundles Java)"
         self.info_lbl.configure(text=self._info_text(f"Java: {jv}"),
                                 text_color=MUTED_COLOR)
+
+    def _on_statuses(self, statuses):
+        for r in self.rows:
+            if r.target.name in statuses:
+                r.set_status(statuses[r.target.name])
+        self._update_button_label()
+
+    def _update_button_label(self):
+        """Switch the button between Install / Update / Install / Update based
+        on the selected rows' install state."""
+        chosen = [r for r in self.rows if r.selected]
+        if not chosen:
+            self.install_btn.configure(text="Install / Update")
+            return
+        states = set()
+        for r in chosen:
+            if r.target.present and r.status in ("up_to_date", "out_of_date"):
+                states.add("installed")
+            else:
+                states.add("new")
+        if states == {"installed"}:
+            self.install_btn.configure(text="Update")
+        elif states == {"new"}:
+            self.install_btn.configure(text="Install")
+        else:
+            self.install_btn.configure(text="Install / Update")
 
     # ---------- install ----------
     def start_install(self):

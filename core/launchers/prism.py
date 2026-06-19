@@ -56,15 +56,17 @@ class PrismLauncher(Launcher):
         cands = self.candidate_paths()
         return cands[0] if cands else None
 
+    def game_dir_for(self, root, instance_name):
+        return os.path.join(root, safe_name(instance_name), ".minecraft")
+
     def install(self, root, manifest, mc_version, loader_version,
                 instance_name, log=None):
         log = log or (lambda *_: None)
         instances_dir = root
         os.makedirs(instances_dir, exist_ok=True)
 
-        folder = safe_name(instance_name)
-        inst_dir = os.path.join(instances_dir, folder)
-        dot_mc = os.path.join(inst_dir, ".minecraft")
+        dot_mc = self.game_dir_for(instances_dir, instance_name)
+        inst_dir = os.path.dirname(dot_mc)
         os.makedirs(dot_mc, exist_ok=True)
 
         self._write_instance_cfg(inst_dir, instance_name, log)

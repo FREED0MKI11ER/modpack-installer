@@ -123,7 +123,55 @@ class Engine:
             except Exception as e:  # noqa: BLE001 - non-fatal
                 log(f"  could not update server list: {e}")
 
+        # Write a version marker so we can quickly report status on next launch.
+        self._write_marker(result.game_dir)
+
         result.notes = (result.notes + "\n" if result.notes else "") + (
             f"({summary['downloaded']} downloaded, "
             f"{summary['deleted']} removed)")
         return result
+
+    # ---------- status (read-only) ----------
+    MARKER = ".modpack-version"
+
+    def _write_marker(self, game_dir):
+        import os
+        try:
+            with open(os.path.join(game_dir, self.MARKER), "w",
+                      encoding="utf-8") as f:
+                f.write(self.manifest.version or "")
+        except OSError:
+            pass
+
+    def _read_marker(self, game_dir):
+        import os
+        try:
+            with open(os.path.join(game_dir, self.MARKER), "r",
+                      encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            return None
+
+    def status_for(self, target):
+        """Return 'up_to_date' | 'out_of_date' | 'not_installed' for a detected
+        target, using the version marker (no hashing)."""
+        if self.manifest is None or not target.detected_path:
+            return "not_installed"
+        try:
+            game_dir = target.launcher.game_dir_for(
+                target.detected_path, self.manifest.pack_name)
+        except NotImplementedError:
+            return "not_installed"
+        marker = self._read_marker(game_dir)
+        if marker is None:
+            return "not_installed"
+        return "up_to_date" if marker == (self.manifest.version or "") \
+            else "out_of_date"
+
+    def statuses(self):
+        """Map each detected target to its status."""
+        out = {}
+        for t in self.detect_targets():
+            if t.present:
+                out[t.name] = self.status_for(t)
+        return out

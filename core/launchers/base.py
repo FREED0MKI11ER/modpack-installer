@@ -87,6 +87,12 @@ class Launcher:
     def default_path(self):
         raise NotImplementedError
 
+    def game_dir_for(self, root, instance_name):
+        """Return where the pack's files live for a given root + name, WITHOUT
+        creating anything. Used for read-only status checks. Must match what
+        install() uses as its game_dir."""
+        raise NotImplementedError
+
     def install(self, root, manifest, mc_version, loader_version,
                 instance_name, log=None):
         """Create/update the instance under `root` and return InstallResult.
