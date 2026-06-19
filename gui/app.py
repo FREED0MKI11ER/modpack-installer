@@ -23,9 +23,10 @@ from core.engine import Engine
 from core import java_check
 
 # Neutral palette. Status badges keep informational colors; no brand accent.
-DETECTED_COLOR = ("#1b7f3b", "#4ade80")   # (light, dark)
-NOTFOUND_COLOR = ("#b26a00", "#fbbf24")
-MUTED_COLOR = ("#555555", "#a0a0a0")
+DETECTED_COLOR = ("#1b7f3b", "#4ade80")     # green  - up to date
+NOTFOUND_COLOR = ("#b26a00", "#fbbf24")     # amber  - out of date
+INSTALLABLE_COLOR = ("#1f6feb", "#58a6ff")  # blue   - detected, not installed
+MUTED_COLOR = ("#555555", "#a0a0a0")        # grey   - launcher not found / muted text
 
 
 def _asset_dirs():
@@ -86,14 +87,16 @@ class LauncherRow:
 
     def _render_status(self):
         if not self.target.present:
+            # Launcher genuinely absent -> muted grey.
             self.status_lbl.configure(text="○ not found",
-                                      text_color=NOTFOUND_COLOR)
+                                      text_color=MUTED_COLOR)
             return
         label, color = {
             "up_to_date": ("Pack up to date", DETECTED_COLOR),
             "out_of_date": ("Pack out of date", NOTFOUND_COLOR),
-            "not_installed": ("Detected, pack not installed", MUTED_COLOR),
-        }.get(self.status, ("Detected, pack not installed", MUTED_COLOR))
+            "not_installed": ("Detected, pack not installed", INSTALLABLE_COLOR),
+        }.get(self.status,
+              ("Detected, pack not installed", INSTALLABLE_COLOR))
         self.status_lbl.configure(text=label, text_color=color)
 
     def set_status(self, status):
@@ -432,6 +435,11 @@ class InstallerApp:
             except Exception as e:  # noqa: BLE001
                 errors.append((r.target.name, str(e)))
                 self._log(f"ERROR on {r.target.name}: {e}")
+        # Refresh statuses (markers were just written) before reporting done.
+        try:
+            self.msg_queue.put(("statuses", self.engine.statuses()))
+        except Exception:  # noqa: BLE001 - non-fatal
+            pass
         self.msg_queue.put(("done", (results, errors)))
 
     def _on_install_done(self, payload):
