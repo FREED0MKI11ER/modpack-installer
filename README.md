@@ -6,7 +6,7 @@ Fabric loader, creates a profile/instance, syncs your **mods**, **shaderpacks**,
 and **resource packs** from a static website you host, and adds your server to
 the in-game multiplayer list. Re-running it auto-updates.
 
-- Current Modpack Version: **1.21.11**, loader: **Fabric** (version resolved live)
+- Current Minecraft Version: **1.21.11**, loader: **Fabric** (version resolved live)
 - OS: **Windows, macOS, Linux**
 - Players install nothing else (single bundled executable)
 - Supported launchers: **Vanilla, Prism, MultiMC, ATLauncher**
